@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Celebrity Recognition</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+
+    <div class="container">
+        <h1>Welcome to the Celebrity Recognition App</h1>
+        <p>We are Sprints Team 1, and we're excited to showcase our work!</p>
+        
+        <!-- Team Information Section -->
+        <div class="team-info">
+            <h2>Meet the Team:</h2>
+            <ul>
+                <li>Menna Mohamed</li>
+                <li>Dina Fakhry</li>
+                <li>Abanoub Younan</li>
+                <li>Karen Emad</li>
+                <li>Basel Amr</li>
+                <li>Ahmed Hesham</li>
+                <li>Omar Tarek</li>
+            </ul>
+        </div>
+
+        <!-- Image Upload Form -->
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" id="fileInput" name="file" required>
+            <button type="submit">Upload Image</button>
+        </form>
+
+        <!-- Uploaded Image Display -->
+        <div id="image-container">
+            <img id="uploaded-image" src="" alt="Uploaded Image" style="display:none;">
+        </div>
+
+        <!-- Result Display -->
+        <div id="result">
+            <p id="celebrity-name"></p>
+        </div>
+    </div>
+
+    <script>
+        // Submit form and handle the result
+        document.getElementById('uploadForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const formData = new FormData();
+            const fileInput = document.getElementById('fileInput');
+            formData.append('file', fileInput.files[0]);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => showResult(data))
+            .catch(error => console.error('Error:', error));
+        });
+
+        // Show the uploaded image and result
+        function showResult(response) {
+            const resultDiv = document.getElementById('result');
+            const celebrityName = document.getElementById('celebrity-name');
+            const uploadedImage = document.getElementById('uploaded-image');
+
+            if (response.result !== 'Non-Defined') {
+                celebrityName.innerText = `Celebrity: ${response.result}`;
+            } else {
+                celebrityName.innerText = 'No match found.';
+            }
+
+            // Show the uploaded image
+            uploadedImage.style.display = 'block';
+            uploadedImage.src = response.image_path;
+
+            // Resize the image to 320x320
+            uploadedImage.width = 320;
+            uploadedImage.height = 320;
+        }
+    </script>
+
+</body>
+</html>

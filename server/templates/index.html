@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Face Detection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+        }
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .video-container {
+            position: relative;
+            margin: 20px auto;
+            width: 1280px;
+            height: 720px;
+            background-color: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        #localVideo {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .quality-controls {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        .quality-controls select {
+            padding: 8px;
+            margin: 0 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Real-time Face Detection</h1>
+        <div class="video-container">
+            <video id="localVideo" autoplay playsinline></video>
+        </div>
+        <div class="controls">
+            <button id="startButton">Start</button>
+            <button id="stopButton" disabled>Stop</button>
+        </div>
+        <div class="status" id="status">Status: Disconnected</div>
+    </div>
+
+    <script>
+        let pc = null;
+        let localStream = null;
+        const localVideo = document.getElementById('localVideo');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const statusDiv = document.getElementById('status');
+
+        function updateStatus(message) {
+            statusDiv.textContent = `Status: ${message}`;
+            console.log('Status:', message);
+        }
+
+        async function start() {
+            try {
+                updateStatus('Getting user media...');
+                
+                // Get user media with error handling
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({
+                        audio: false,
+                        video: {
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 },
+                            frameRate: { ideal: 30 }
+                        }
+                    });
+                } catch (e) {
+                    updateStatus('Camera access error: ' + e.message);
+                    throw e;
+                }
+
+                // Show local video
+                localVideo.srcObject = localStream;
+                updateStatus('Camera connected');
+
+                // Create peer connection with explicit configuration
+                const configuration = {
+                    iceServers: [
+                        {
+                            urls: 'stun:stun.l.google.com:19302'
+                        }
+                    ]
+                };
+
+                pc = new RTCPeerConnection(configuration);
+                updateStatus('RTCPeerConnection created');
+
+                // Add local stream tracks to peer connection
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream);
+                    console.log('Added track:', track.kind);
+                });
+
+                // ICE candidate handling
+                pc.onicecandidate = event => {
+                    console.log('ICE candidate:', event.candidate);
+                };
+
+                // Connection state changes
+                pc.onconnectionstatechange = () => {
+                    console.log('Connection state:', pc.connectionState);
+                    updateStatus('Connection: ' + pc.connectionState);
+                };
+
+                // ICE connection state changes
+                pc.oniceconnectionstatechange = () => {
+                    console.log('ICE connection state:', pc.iceConnectionState);
+                };
+
+                // Handle incoming video track
+                pc.ontrack = (event) => {
+                    console.log('Received track:', event.track.kind);
+                    if (event.track.kind === 'video') {
+                        localVideo.srcObject = new MediaStream([event.track]);
+                        updateStatus('Received video track');
+                    }
+                };
+
+                // Create and send offer
+                updateStatus('Creating offer...');
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                updateStatus('Sending offer to server...');
+                const response = await fetch('/offer', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        sdp: pc.localDescription.sdp,
+                        type: pc.localDescription.type
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server responded with ${response.status}`);
+                }
+
+                const answer = await response.json();
+                updateStatus('Received answer from server');
+                
+                await pc.setRemoteDescription(answer);
+                updateStatus('Remote description set');
+
+                startButton.disabled = true;
+                stopButton.disabled = false;
+
+            } catch (e) {
+                console.error('Error starting stream:', e);
+                updateStatus('Error: ' + e.message);
+                stop();
+            }
+        }
+
+        function stop() {
+            if (pc) {
+                pc.ontrack = null;
+                pc.onicecandidate = null;
+                pc.oniceconnectionstatechange = null;
+                pc.onconnectionstatechange = null;
+                pc.close();
+                pc = null;
+            }
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            
+            localVideo.srcObject = null;
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            updateStatus('Disconnected');
+        }
+
+        startButton.onclick = start;
+        stopButton.onclick = stop;
+    </script>
+</body>
+</html>
